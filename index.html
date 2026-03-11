@@ -1,5 +1,4 @@
-
-Copy
+opy
 
 <!DOCTYPE html>
 <html lang="tr">
@@ -580,6 +579,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0015;font-family:
 
   <!-- Notif -->
   <div id="notif"></div>
+  <div id="gemCdEl" style="display:none;position:absolute;top:80px;left:50%;transform:translateX(-50%);
+    font-family:'Lilita One',cursive;font-size:20px;background:rgba(0,0,0,.85);
+    border-radius:16px;padding:7px 22px;z-index:40;pointer-events:none;
+    border:2px solid rgba(255,255,255,.2);text-align:center;white-space:nowrap;"></div>
 
   <!-- Gol Banner -->
   <div id="golBanner">⚽ GOL!</div>
@@ -668,6 +671,8 @@ const BRAWLERS=[
   {name:'Spike',  e:'🌵',col:'#9b59b6',hp:2800,dmg:640,spd:1.75,shot:'spread', r:'r-l',rar:'Efsanevi'},
   {name:'Crow',   e:'🐦',col:'#2c3e50',hp:2400,dmg:320,spd:2.10,shot:'triple', r:'r-l',rar:'Efsanevi'},
 ];
+const BOT_NAMES_POOL=['Ahmet','Mehmet','Ali','Ayşe','Fatma','Hasan','Hüseyin','Zeynep','Mustafa','Emir','Yusuf','Ömer','Musa','İbrahim','Burak','Kerem','Arda','Serkan','Deniz','Caner','Mert','Kaan','Baran','Tuna','Eren','Selin','Elif','Nisa','Buse','Gizem'];
+function randBotName(){ return BOT_NAMES_POOL[Math.floor(Math.random()*BOT_NAMES_POOL.length)]; }
 const BOT_NAMES=['KralAvcı','YıldızBot','GemHanı','BombaBot','ZekinBot','HızBot','SavaşBot','AteşBot'];
 
 /* ─── TROPHY ROAD MILESTONES ─── */
@@ -875,12 +880,12 @@ function makeEnt(id,name,e,col,bIdx,team,tx,ty,isP){
     x:(tx+.5)*TW, y:(ty+.5)*TW,
     hp:b.hp, mhp:b.hp,
     ammo:3, maxAmmo:3, ammoT:0,
-    spd:b.spd*TW/14,
+    spd:b.spd*TW/22,
     shootCD:0, angle:team===0?0:Math.PI,
     isAlive:true, isPlayer:isP,
     kills:0, gems:0,
     aiT:0, aiTx:(tx+.5)*TW, aiTy:(ty+.5)*TW,
-    ballCooldown:0,
+    ballCooldown:0, lastHitT:0,
   };
 }
 
@@ -911,16 +916,33 @@ function launch(){
 
   const map=buildMap(mode);
   const b=BRAWLERS[selBrawler];
-  const player=makeEnt(0,playerName,b.e,b.col,selBrawler,0,2,2,true);
+  // Ball mode: player starts at center
+  const psx=mode==='ball'?Math.floor(MW/2):2;
+  const psy=mode==='ball'?Math.floor(MH/2)+6:2;
+  const player=makeEnt(0,playerName,b.e,b.col,selBrawler,0,psx,psy,true);
 
   const bots=[];
   const count=mode==='show'?9:5;
   for(let i=1;i<=count;i++){
     const bi=Math.floor(Math.random()*BRAWLERS.length);
-    const team=i<=Math.floor(count/2)?0:1;
-    const spx=team===0?2+Math.floor(Math.random()*2):MW-4+Math.floor(Math.random()*2);
-    const spy=team===0?2+Math.floor(Math.random()*2):MH-4+Math.floor(Math.random()*2);
-    bots.push(makeEnt(i,BOT_NAMES[(i-1)%BOT_NAMES.length],BRAWLERS[bi].e,BRAWLERS[bi].col,bi,team,spx,spy,false));
+    const team=mode==='show'?i:(i<=Math.floor(count/2)?0:1);
+    let spx,spy;
+    if(mode==='ball'){
+      // Team 0 (blue): start far bottom, Team 1 (red): start far top
+      const cx=Math.floor(MW/2), cy=Math.floor(MH/2);
+      const offset=i%3===0?-3:i%3===1?0:3;
+      spx=cx+offset;
+      spy=team===0?cy+6:cy-6;
+    } else if(mode==='show'){
+      // Showdown: herkes haritanın farklı noktasına spawn
+      const spawnSpots=[[2,2],[MW-4,2],[2,MH-4],[MW-4,MH-4],[Math.floor(MW/2),2],[Math.floor(MW/2),MH-4],[2,Math.floor(MH/2)],[MW-4,Math.floor(MH/2)],[Math.floor(MW/2),Math.floor(MH/2)]];
+      const sp=spawnSpots[(i-1)%spawnSpots.length];
+      spx=sp[0]; spy=sp[1];
+    } else {
+      spx=team===0?2+Math.floor(Math.random()*2):MW-4+Math.floor(Math.random()*2);
+      spy=team===0?2+Math.floor(Math.random()*2):MH-4+Math.floor(Math.random()*2);
+    }
+    bots.push(makeEnt(i,randBotName(),BRAWLERS[bi].e,BRAWLERS[bi].col,bi,team,spx,spy,false));
   }
 
   let gems=[];
@@ -1038,7 +1060,7 @@ function tick(dt){
     bot.aiT-=dt;
     if(bot.ballCooldown>0) bot.ballCooldown-=dt;
     const all=[p,...g.bots];
-    const enemies=all.filter(e=>e.isAlive&&e.team!==bot.team);
+    const enemies=all.filter(e=>e.isAlive&&e.team!==bot.team&&(gs.mode!=='show'||e!==bot));
     let tgt=null, md=1e9;
     enemies.forEach(e=>{ const d=dist2(bot,e); if(d<md){md=d;tgt=e;} });
 
@@ -1052,7 +1074,7 @@ function tick(dt){
       const ball=g.ball;
       if(ball.carrier===bot){
         // Run to goal
-        const gy=bot.team===0?GOAL_TOP()+TW:GOAL_BOT()-TW;
+        const gy=bot.team===0?GOAL_TOP()+TW:GOAL_BOT()-TW; // mavi → üst kale, kırmızı → alt kale
         bot.aiTx=MW*TW/2+(bot.id%3===1?-TW:bot.id%3===2?TW:0);
         bot.aiTy=gy;
         // Kick when close enough to goal
@@ -1086,13 +1108,16 @@ function tick(dt){
     // Move bot
     const bdx=bot.aiTx-bot.x, bdy=bot.aiTy-bot.y;
     const bl=Math.hypot(bdx,bdy);
-    if(bl>6) moveEnt(bot, bdx/bl*bot.spd*dt*.82, bdy/bl*bot.spd*dt*.82);
+    if(bl>6) moveEnt(bot, bdx/bl*bot.spd*dt*1.05, bdy/bl*bot.spd*dt*1.05);
     if(bl>4) bot.angle=Math.atan2(bot.aiTy-bot.y, bot.aiTx-bot.x);
 
     // Non-ball shooting
-    if(g.mode!=='ball'&&tgt&&bot.shootCD<=0&&bot.ammo>0&&Math.sqrt(dist2(bot,tgt))<TW*8){
+    if(g.mode!=='ball'&&tgt&&bot.shootCD<=0&&bot.ammo>0&&Math.sqrt(dist2(bot,tgt))<TW*11){
       bot.angle=Math.atan2(tgt.y-bot.y,tgt.x-bot.x);
-      firePr(bot); bot.ammo--; bot.shootCD=22+Math.random()*16;
+      // Botlar %20 daha doğru nişan alsın
+      const spread=(Math.random()-.5)*0.08;
+      bot.angle+=spread;
+      firePr(bot, 1.3); bot.ammo--; bot.shootCD=14+Math.random()*10;
       if(bot.ammo<bot.maxAmmo) bot.ammoT=0;
     }
     if(bot.shootCD>0) bot.shootCD-=dt;
@@ -1116,7 +1141,7 @@ function tick(dt){
     }
     // Hit entity
     let hit=false;
-    for(const t of [p,...g.bots].filter(e=>e.isAlive&&e.team!==pr.team&&e.id!==pr.oid)){
+    for(const t of [p,...g.bots].filter(e=>e.isAlive&&(gs.mode==='show'||e.team!==pr.team)&&e.id!==pr.oid&&e.team!==pr.team)){
       if(Math.abs(pr.x-t.x)<22&&Math.abs(pr.y-t.y)<22){
         if(pr.type==='lob'||pr.type==='rocket') explode(pr);
         else dealDmg(pr.oid,t,pr.dmg);
@@ -1159,12 +1184,20 @@ function tick(dt){
 
       // Top wall / top goal
       if(ball.y-BR<=GOAL_TOP()){
-        if(inGX){ scoreGoal(1,ball); return; }
+        if(inGX){
+          // GOAL_TOP = kırmızı kalesi. Mavi (team=0) atar = mavi puan=score[0]. Kırmızı atarsa own goal = engelle
+          if(ball.lastKicker&&ball.lastKicker.team===1){ball.vy=Math.abs(ball.vy)*.7;ball.y=GOAL_TOP()+BR+1;}
+          else{scoreGoal(0,ball);return;}
+        }
         else{ ball.vy=Math.abs(ball.vy)*.7; ball.y=GOAL_TOP()+BR+1; }
       }
       // Bottom wall / bottom goal
       if(ball.y+BR>=GOAL_BOT()){
-        if(inGX){ scoreGoal(0,ball); return; }
+        if(inGX){
+          // GOAL_BOT = mavi kalesi. Kırmızı (team=1) atar = kırmızı puan=score[1]. Mavi atarsa own goal = engelle
+          if(ball.lastKicker&&ball.lastKicker.team===0){ball.vy=-Math.abs(ball.vy)*.7;ball.y=GOAL_BOT()-BR-1;}
+          else{scoreGoal(1,ball);return;}
+        }
         else{ ball.vy=-Math.abs(ball.vy)*.7; ball.y=GOAL_BOT()-BR-1; }
       }
       // Side walls
@@ -1188,14 +1221,36 @@ function tick(dt){
     if(pt.life<=0) g.parts.splice(i,1);
   }
 
+  // ── CAN YENİLEME (3 sn hasar almassa) ──
+  const regenDelay=180; // ~3 saniye (frame bazlı)
+  const now2=Date.now();
+  [gs.player,...gs.bots].filter(e=>e.isAlive&&e.hp<e.mhp).forEach(e=>{
+    const timeSinceHit=now2-(e.lastHitT||0);
+    if(timeSinceHit>3000){
+      e.hp=Math.min(e.mhp, e.hp+e.mhp*0.008*dt); // saniyede %0.8 can
+      if(e.isPlayer) updateHpBar();
+    }
+  });
+
+  // ── GEM SAYACI ──
+  if(gs.mode==='gem') tickGemCountdown(dt);
+
   updateHpBar(); drawMinimap();
 }
 
 /* Ball goal check when carrying */
 function checkBallGoal(ball){
   const inGX=ball.x>goalX0()*TW&&ball.x<goalX1()*TW;
-  if(ball.y<=GOAL_TOP()&&inGX){ scoreGoal(1,ball); return; }
-  if(ball.y>=GOAL_BOT()&&inGX){ scoreGoal(0,ball); }
+  if(ball.y<=GOAL_TOP()&&inGX){
+    // GOAL_TOP = kırmızı kalesi. Mavi atar = mavi puan. Kırmızı taşırsa kendi kalesi → geri at
+    if(ball.carrier&&ball.carrier.team===1){kickBall(ball,null,Math.PI/2,6);return;}
+    scoreGoal(0,ball); return;
+  }
+  if(ball.y>=GOAL_BOT()&&inGX){
+    // GOAL_BOT = mavi kalesi. Kırmızı atar = kırmızı puan. Mavi taşırsa kendi kalesi → geri at
+    if(ball.carrier&&ball.carrier.team===0){kickBall(ball,null,-Math.PI/2,6);return;}
+    scoreGoal(1,ball);
+  }
 }
 
 /* ─── AI helpers ─── */
@@ -1270,13 +1325,47 @@ function resetBall(){
   if(!gs.ball) return;
   gs.ball.x=MW/2*TW; gs.ball.y=MH/2*TW;
   gs.ball.vx=0; gs.ball.vy=0; gs.ball.carrier=null; gs.ball.lastKicker=null;
+  // Reset all players to center positions
+  const cx=Math.floor(MW/2), cy=Math.floor(MH/2);
+  if(gs.player.isAlive){
+    gs.player.x=(cx)*TW; gs.player.y=(cy+6)*TW;
+    gs.player.ammo=3; gs.player.ballCooldown=0;
+  }
+  gs.bots.forEach((bot,i)=>{
+    if(bot.isAlive){
+      const offset=(i%3===0)?-3:(i%3===1)?0:3;
+      bot.x=(cx+offset)*TW;
+      bot.y=bot.team===0?(cy+6)*TW:(cy-6)*TW;
+      bot.ammo=3; bot.ballCooldown=0;
+    }
+  });
 }
 
 /* ─── WIN / END ─── */
 function checkWin(){
   if(!gs) return;
-  if(gs.mode==='gem'){ if(gs.score[0]>=10) endGame(true); else if(gs.score[1]>=10) endGame(false); }
+  if(gs.mode==='gem'){
+    // 10 elmas toplarsan 15 saniye sayacı başlar
+    if(gs.score[0]>=10&&!gs.gemCountdown) startGemCountdown(0);
+    if(gs.score[1]>=10&&!gs.gemCountdown) startGemCountdown(1);
+  }
   if(gs.mode==='ball'){ if(gs.score[0]>=2) endGame(true); else if(gs.score[1]>=2) endGame(false); }
+}
+function startGemCountdown(team){
+  gs.gemCountdown={team,t:15};
+  const col=team===0?'#5dade2':'#e74c3c';
+  notify((team===0?'🔵 Mavi':'🔴 Kırmızı')+' 15 saniye tutsun!',col);
+}
+function tickGemCountdown(dt){
+  if(!gs.gemCountdown) return;
+  const cd=gs.gemCountdown;
+  // Eğer o takım artık 10 elması yoksa iptal
+  if(gs.score[cd.team]<10){ gs.gemCountdown=null; notify('❌ Geri Sayım İptal!','#ff6b00'); return; }
+  cd.t-=dt/60;
+  if(cd.t<=0){ endGame(cd.team===0); return; }
+  // HUD güncelle
+  const el=document.getElementById('gemCdEl');
+  if(el){ el.textContent='⏳ '+(cd.team===0?'Mavi':'Kırmızı')+': '+Math.ceil(cd.t)+'s'; el.style.display='block'; el.style.color=cd.team===0?'#5dade2':'#e74c3c'; }
 }
 function endGame(won){
   if(!gs||!gs.running) return;
@@ -1285,14 +1374,35 @@ function endGame(won){
   if(raf) cancelAnimationFrame(raf);
   setTimeout(()=>showResult(won),800);
 }
-function showResult(won){
+function endShowdown(rank, total){
+  if(!gs||!gs.running) return;
+  gs.running=false;
+  if(timerInt) clearInterval(timerInt);
+  if(raf) cancelAnimationFrame(raf);
+  const trophyMap={1:10, 2:7, 3:6, 4:5, 5:3};
+  const delta=trophyMap[rank]||(-10);
+  setTimeout(()=>showResult(null, rank, delta),800);
+}
+function showResult(won, rank, customDelta){
   showScreen('s-result');
   const old=TROPHIES;
-  const delta=won?30:-15;
+  let delta;
+  if(customDelta!==undefined){
+    delta=customDelta;
+  } else {
+    delta=won?30:-15;
+  }
   TROPHIES=Math.max(0,TROPHIES+delta);
   save(); refreshNavBar();
-  document.getElementById('rTitle').textContent=won?'🏆 ZAFERSİN!':'💀 YENİLDİN';
-  document.getElementById('rTitle').className='result-title '+(won?'result-win':'result-lose');
+  const el=document.getElementById('gemCdEl'); if(el) el.style.display='none';
+  if(rank){
+    const medals=['','🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣'];
+    document.getElementById('rTitle').textContent=(medals[rank]||'💀')+' '+rank+'. OLDU!';
+    document.getElementById('rTitle').className='result-title '+(rank===1?'result-win':'result-lose');
+  } else {
+    document.getElementById('rTitle').textContent=won?'🏆 ZAFERSİN!':'💀 YENİLDİN';
+    document.getElementById('rTitle').className='result-title '+(won?'result-win':'result-lose');
+  }
   const dEl=document.getElementById('rDelta');
   dEl.textContent=(delta>0?'+':'')+delta;
   dEl.className=delta>0?'tc-plus':'tc-minus';
@@ -1302,7 +1412,7 @@ function showResult(won){
   document.getElementById('rKills').textContent=pStats.kills;
   document.getElementById('rDeaths').textContent=pStats.deaths;
   document.getElementById('rMode').textContent={gem:'Gem Grab',ball:'Brawl Ball',show:'Showdown'}[mode];
-  if(won) checkMilestones(old,TROPHIES);
+  if(delta>0) checkMilestones(old,TROPHIES);
 }
 function goMenu(){ gs=null; showScreen('s-menu'); refreshNavBar(); }
 
@@ -1319,9 +1429,10 @@ function doShoot(){
   if(p.ammo<p.maxAmmo) p.ammoT=0;
   updateAmmoUI();
 }
-function firePr(shooter){
+function firePr(shooter, dmgMult){
   const b=BRAWLERS[shooter.bIdx], a=shooter.angle, sp=7;
-  const mk=(ang,speed,dmg,range,type,col)=>gs.projs.push({x:shooter.x,y:shooter.y,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,oid:shooter.id,team:shooter.team,dmg,range,dist:0,type,col});
+  const dm=dmgMult||1;
+  const mk=(ang,speed,dmg,range,type,col)=>gs.projs.push({x:shooter.x,y:shooter.y,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,oid:shooter.id,team:shooter.team,dmg:dmg*dm,range,dist:0,type,col});
   switch(b.shot){
     case'scatter': for(let i=-2;i<=2;i++) mk(a+i*.13,sp,b.dmg*.36,TW*6,'bullet',b.col); break;
     case'burst':   for(let i=-1;i<=1;i++) mk(a+i*.08,sp+1,b.dmg*.44,TW*8,'bullet',b.col); break;
@@ -1336,16 +1447,30 @@ function firePr(shooter){
 /* ─── DAMAGE ─── */
 function dealDmg(oid,target,dmg){
   target.hp-=dmg;
+  target.lastHitT=Date.now(); // can yenileme için
   if(oid===0&&!target.isPlayer) pStats.dmg+=dmg;
   spawnDmgFx(target.x,target.y);
+  // GEM: hasar alırsa geri sayım iptal
+  if(gs.mode==='gem'&&gs.gemCountdown&&gs.gemCountdown.team===target.team){
+    gs.gemCountdown=null;
+    const el=document.getElementById('gemCdEl'); if(el) el.style.display='none';
+    notify('💥 Geri Sayım İptal!','#ff6b00');
+  }
   if(target.hp>0) return;
   target.hp=0; target.isAlive=false;
   addKillFeed(oid,target);
   if(target.isPlayer){
     pStats.deaths++;
+    if(gs.mode==='show'){
+      // Showdown'da öldün → sıralama hesapla
+      const aliveCount=[...gs.bots].filter(b=>b.isAlive).length;
+      const rank=aliveCount+1; // kaçıncı oldun
+      endShowdown(rank, gs.bots.length+1);
+      return;
+    }
     notify('💀 Öldün! 3sn sonra doğuyorsun…','#e74c3c');
     setTimeout(()=>{
-      if(gs&&gs.running){ target.x=3*TW; target.y=3*TW; target.hp=target.mhp; target.ammo=3; target.isAlive=true; updateAmmoUI(); }
+      if(gs&&gs.running){ target.x=3*TW; target.y=3*TW; target.hp=target.mhp; target.ammo=3; target.isAlive=true; target.lastHitT=0; updateAmmoUI(); }
     },3000);
   } else {
     const killer=oid===0?gs.player:gs.bots.find(b=>b.id===oid);
@@ -1357,11 +1482,18 @@ function dealDmg(oid,target,dmg){
     }
     if(gs.mode==='ball'&&gs.ball&&gs.ball.carrier===target){ gs.ball.carrier=null; gs.ball.vx=(Math.random()-.5)*4; gs.ball.vy=(Math.random()-.5)*4; }
     if(gs.mode==='show'){
-      const alive=gs.bots.filter(b=>b.isAlive);
-      if(alive.length===0) endGame(gs.player.isAlive);
-      else if(!alive.some(b=>b.team!==0)&&gs.player.isAlive) endGame(true);
+      // Bot öldü → kaç kişi kaldı kontrol
+      const aliveBots=gs.bots.filter(b=>b.isAlive);
+      if(aliveBots.length===0&&gs.player.isAlive){
+        // Oyuncu kazandı! 1. oldu
+        endShowdown(1, gs.bots.length+1);
+        return;
+      }
+      // Bot için respawn yok showdown'da
+      target.showRank = aliveBots.length+2; // bot'un sıralaması
+      return; // respawn yok
     }
-    setTimeout(()=>{ if(gs&&gs.running) respawnBot(target); },5000+Math.random()*2000);
+    if(gs.mode!=='show') setTimeout(()=>{ if(gs&&gs.running) respawnBot(target); },5000+Math.random()*2000);
   }
 }
 function respawnBot(bot){
@@ -1445,7 +1577,7 @@ function render(){
     for(let i=1;i<GHW*2;i++){ CX.beginPath(); CX.moveTo(gxA+i*(gw/(GHW*2)),TW*.3); CX.lineTo(gxA+i*(gw/(GHW*2)),gtop); CX.stroke(); }
     for(let y=TW*.3;y<gtop;y+=gtop*.33){ CX.beginPath(); CX.moveTo(gxA,y); CX.lineTo(gxB,y); CX.stroke(); }
     CX.fillStyle='rgba(231,76,60,.9)'; CX.font='bold 12px Nunito,sans-serif'; CX.textAlign='center';
-    CX.fillText('⬆ KIRMIZI ATAR',fw/2,gtop+18);
+    CX.fillText('⬆ MAVİ ATAR',fw/2,gtop+18);
     // Penalty arc top
     CX.strokeStyle='rgba(255,255,255,.15)'; CX.lineWidth=2;
     CX.beginPath(); CX.arc(fw/2,gtop+TW*2.5,TW*2.5,Math.PI*.1,Math.PI*.9,true); CX.stroke();
@@ -1460,7 +1592,7 @@ function render(){
     for(let i=1;i<GHW*2;i++){ CX.beginPath(); CX.moveTo(gxA+i*(gw/(GHW*2)),gbot); CX.lineTo(gxA+i*(gw/(GHW*2)),MH*TW-TW*.3); CX.stroke(); }
     for(let y=gbot;y<MH*TW-TW*.3;y+=(MH*TW-TW*.3-gbot)*.33){ CX.beginPath(); CX.moveTo(gxA,y); CX.lineTo(gxB,y); CX.stroke(); }
     CX.fillStyle='rgba(93,173,226,.9)'; CX.font='bold 12px Nunito,sans-serif'; CX.textAlign='center';
-    CX.fillText('⬇ MAVİ ATAR',fw/2,gbot-8);
+    CX.fillText('⬇ KIRMIZI ATAR',fw/2,gbot-8);
     CX.strokeStyle='rgba(255,255,255,.15)'; CX.lineWidth=2;
     CX.beginPath(); CX.arc(fw/2,gbot-TW*2.5,TW*2.5,Math.PI*1.1,Math.PI*1.9); CX.stroke();
   }
@@ -1523,35 +1655,405 @@ function render(){
 }
 
 function drawEnt(e,isP){
-  const sz=20;
-  CX.fillStyle='rgba(0,0,0,.3)'; CX.beginPath(); CX.ellipse(e.x,e.y+sz*.9,sz*.6,sz*.25,0,0,Math.PI*2); CX.fill();
-  const grd=CX.createRadialGradient(e.x-sz*.3,e.y-sz*.3,0,e.x,e.y,sz);
-  grd.addColorStop(0,lighten(e.col,60)); grd.addColorStop(1,e.col);
-  CX.fillStyle=grd; CX.beginPath(); CX.arc(e.x,e.y,sz,0,Math.PI*2); CX.fill();
-  CX.strokeStyle=isP?'#ffe234':(e.team===0?'#5dade2':'#e74c3c'); CX.lineWidth=isP?3.5:2.5; CX.stroke();
-  CX.font=`${sz+3}px serif`; CX.textAlign='center'; CX.textBaseline='middle'; CX.fillText(e.e,e.x,e.y+1);
-  // Gun
-  CX.strokeStyle='#3a3a3a'; CX.lineWidth=5; CX.lineCap='round';
-  CX.beginPath(); CX.moveTo(e.x+Math.cos(e.angle)*sz*.45,e.y+Math.sin(e.angle)*sz*.45); CX.lineTo(e.x+Math.cos(e.angle)*(sz+8),e.y+Math.sin(e.angle)*(sz+8)); CX.stroke();
-  CX.strokeStyle='#7a7a7a'; CX.lineWidth=3; CX.stroke();
-  // Ball on head
+  // Gem/Ball modunda orijinal renk, Showdown'da takım rengi kostüm
+  const baseCol=e.col;
+  const isBlue=e.team===0;
+  const isRed=e.team===1;
+  // Savaş modlarında (gem/ball) takım rengi giysi
+  let col;
+  if(gs.mode==='gem'||gs.mode==='ball'){
+    col=isP?e.col:(isBlue?'#1a6fc4':isRed?'#c0392b':e.col);
+  } else {
+    col=e.col; // showdown: orijinal renk
+  }
+  const teamCol=isP?'#ffe234':(isBlue?'#5dade2':'#e74c3c');
+  const now=Date.now();
+  const tid=e.id||0;
+  // Hareket animasyonu
+  const walk=Math.sin(now*0.013+tid*1.3);
+  const bob=walk*2.5;
+  const legL=walk*8, legR=-walk*8;
+  const armSwing=-walk*0.4;
+
+  const cx=e.x, cy=e.y;
+  const facing=e.angle; // radyan, karakterin baktığı yön
+  const faceRight=Math.cos(facing)>=0;
+
+  CX.save();
+
+  // ══ GÖLGE ══
+  CX.fillStyle='rgba(0,0,0,.4)';
+  CX.beginPath(); CX.ellipse(cx+2, cy+26, 16, 6, 0, 0, Math.PI*2); CX.fill();
+
+  // ══ BACAKLAR ══
+  // Sol bacak
+  drawLeg(cx-7, cy+8+bob, legL, col, teamCol);
+  // Sağ bacak
+  drawLeg(cx+7, cy+8+bob, legR, col, teamCol);
+
+  // ══ GÖVDE ══
+  drawBody3D(cx, cy+bob, col, teamCol, e.bIdx);
+
+  // ══ KOL (silah yönünde) ══
+  drawArmGun(cx, cy+bob, facing, col, e.bIdx);
+
+  // ══ BAŞ ══
+  drawHead3D(cx, cy-10+bob, col, teamCol, e.bIdx, isP, facing);
+
+  // ══ TOP TAŞIMA ══
   if(gs.mode==='ball'&&gs.ball&&gs.ball.carrier===e){
-    CX.save(); CX.shadowBlur=10; CX.shadowColor='rgba(255,255,255,.6)';
-    CX.fillStyle='#fff'; CX.beginPath(); CX.arc(e.x,e.y-sz-8,10,0,Math.PI*2); CX.fill();
-    CX.fillStyle='#1a1a1a'; [[0,-6],[5.5,3],[-5.5,3]].forEach(([ox,oy])=>{ CX.beginPath(); CX.arc(e.x+ox,e.y-sz-8+oy,2.2,0,Math.PI*2); CX.fill(); });
+    CX.save();
+    CX.shadowBlur=14; CX.shadowColor='rgba(255,255,255,.8)';
+    // Top üstte
+    CX.fillStyle='#fff'; CX.beginPath(); CX.arc(cx, cy-36+bob, 11, 0, Math.PI*2); CX.fill();
+    CX.fillStyle='#111';
+    [[0,-7],[6,3.5],[-6,3.5]].forEach(([ox,oy])=>{
+      CX.beginPath(); CX.arc(cx+ox, cy-36+bob+oy, 2.5,0,Math.PI*2); CX.fill();
+    });
     CX.shadowBlur=0; CX.restore();
   }
-  // HP bar
-  const bw=44,bh=6,bx=e.x-bw/2,by=e.y-sz-18;
-  CX.fillStyle='rgba(0,0,0,.7)'; CX.fillRect(bx-1,by-1,bw+2,bh+2);
-  const hr=e.hp/e.mhp; CX.fillStyle=hr>.5?'#00c851':hr>.25?'#ffb900':'#ff3d3d'; CX.fillRect(bx,by,bw*hr,bh);
-  // Name
+
+  CX.restore();
+
+  // ══ HP BAR ══
+  const bw=50, bh=7, bx=cx-bw/2, by=cy-52+bob;
+  // Arka plan
+  CX.fillStyle='rgba(0,0,0,.8)';
+  CX.beginPath(); CX.roundRect(bx-2,by-2,bw+4,bh+4,4); CX.fill();
+  // HP dolgu
+  const hr=e.hp/e.mhp;
+  const hcol=hr>.5?['#00c851','#00ff66']:hr>.25?['#ffb900','#ffd700']:['#ff3d3d','#ff6b6b'];
+  const hg=CX.createLinearGradient(bx,by,bx+bw,by);
+  hg.addColorStop(0,hcol[0]); hg.addColorStop(1,hcol[1]);
+  CX.fillStyle=hg;
+  CX.beginPath(); CX.roundRect(bx,by,bw*hr,bh,3); CX.fill();
+  // HP parlama
+  CX.fillStyle='rgba(255,255,255,.25)';
+  CX.beginPath(); CX.roundRect(bx,by,bw*hr,bh/2,3); CX.fill();
+
+  // ══ İSİM ══
   CX.font='bold 10px Nunito,sans-serif'; CX.textAlign='center'; CX.textBaseline='alphabetic';
   const nm=isP?BRAWLERS[e.bIdx].name+' ('+playerName+')':e.name;
-  const nw=CX.measureText(nm).width+8;
-  CX.fillStyle='rgba(0,0,0,.75)'; CX.fillRect(e.x-nw/2,e.y-sz-32,nw,14);
-  CX.fillStyle=isP?'#ffe234':'#fff'; CX.fillText(nm,e.x,e.y-sz-20);
-  if(e.gems>0){ CX.fillStyle='#4daaff'; CX.font='bold 11px Nunito,sans-serif'; CX.fillText('💎'+e.gems,e.x,e.y-sz-44); }
+  const nw=CX.measureText(nm).width+12;
+  CX.fillStyle='rgba(0,0,0,.85)';
+  CX.beginPath(); CX.roundRect(cx-nw/2, cy-67+bob, nw, 15, 4); CX.fill();
+  CX.fillStyle=isP?'#ffe234':'#fff'; CX.fillText(nm, cx, cy-54+bob);
+  if(e.gems>0){ CX.fillStyle='#4daaff'; CX.font='bold 11px Nunito,sans-serif'; CX.fillText('💎'+e.gems,cx,cy-70+bob); }
+}
+
+// ── Bacak çizimi ──
+function drawLeg(x, y, swing, col, teamCol){
+  CX.save();
+  // Uyluk
+  CX.fillStyle=darken(col,30);
+  CX.beginPath();
+  CX.save(); CX.translate(x, y); CX.rotate(swing*0.07);
+  CX.ellipse(0, 4, 5, 9, 0, 0, Math.PI*2); CX.fill();
+  // Diz
+  CX.fillStyle=darken(col,50);
+  CX.beginPath(); CX.arc(0, 12, 4.5, 0, Math.PI*2); CX.fill();
+  // Baldır
+  CX.fillStyle=darken(col,40);
+  CX.beginPath(); CX.ellipse(0, 19, 4, 7, swing*0.05, 0, Math.PI*2); CX.fill();
+  // Bot/Ayak (takım rengi bot)
+  CX.fillStyle=teamCol?teamCol+'cc':'#222';
+  CX.beginPath(); CX.ellipse(swing*0.3, 25, 6, 3.5, 0.1, 0, Math.PI*2); CX.fill();
+  CX.fillStyle='#111';
+  CX.beginPath(); CX.ellipse(swing*0.3, 25, 6, 3.5, 0.1, 0, Math.PI*2); CX.stroke();
+  // Ayak parlaması
+  CX.fillStyle='rgba(255,255,255,.2)';
+  CX.beginPath(); CX.ellipse(swing*0.3-1, 23, 3, 2, 0, 0, Math.PI*2); CX.fill();
+  CX.restore();
+  CX.restore();
+}
+
+// ── 3D Gövde ──
+function drawBody3D(cx, cy, col, teamCol, bIdx){
+  const W=24, H=22;
+  const dX=5, dY=4; // derinlik offset
+
+  // Sağ yan (karanlık)
+  CX.fillStyle=darken(col,40);
+  CX.beginPath();
+  CX.moveTo(cx+W/2, cy-H/2);
+  CX.lineTo(cx+W/2+dX, cy-H/2-dY);
+  CX.lineTo(cx+W/2+dX, cy+H/2-dY);
+  CX.lineTo(cx+W/2, cy+H/2);
+  CX.closePath(); CX.fill();
+
+  // Üst yüz (açık)
+  CX.fillStyle=lighten(col,35);
+  CX.beginPath();
+  CX.moveTo(cx-W/2, cy-H/2);
+  CX.lineTo(cx+W/2, cy-H/2);
+  CX.lineTo(cx+W/2+dX, cy-H/2-dY);
+  CX.lineTo(cx-W/2+dX, cy-H/2-dY);
+  CX.closePath(); CX.fill();
+
+  // Ön yüz
+  const g=CX.createLinearGradient(cx-W/2, cy-H/2, cx+W/2, cy+H/2);
+  g.addColorStop(0, lighten(col,30));
+  g.addColorStop(0.5, col);
+  g.addColorStop(1, darken(col,20));
+  CX.fillStyle=g;
+  CX.beginPath(); CX.roundRect(cx-W/2, cy-H/2, W, H, [8,8,5,5]); CX.fill();
+
+  // Takım rengi omuz bandı (kalın ve belirgin)
+  CX.fillStyle=teamCol;
+  CX.beginPath(); CX.roundRect(cx-W/2+2, cy-H/2+2, W-4, 7, 3); CX.fill();
+  // İkinci ince çizgi
+  CX.fillStyle=teamCol+'bb';
+  CX.beginPath(); CX.roundRect(cx-W/2+2, cy-H/2+11, W-4, 3, 2); CX.fill();
+  CX.fillStyle='rgba(255,255,255,.35)';
+  CX.beginPath(); CX.roundRect(cx-W/2+2, cy-H/2+2, W-4, 3, 2); CX.fill();
+
+  // Göğüs detayı (brawler'a göre)
+  const details=[[0,'#c0392b'],[1,'#8e44ad'],[2,'#2980b9'],[3,'#d35400'],[4,'#f39c12'],[5,'#16a085'],[6,'#e67e22'],[7,'#27ae60'],[8,'#9b59b6'],[9,'#2c3e50']];
+  const dc=details[bIdx]?details[bIdx][1]:'#333';
+  CX.fillStyle=dc+'99';
+  CX.beginPath(); CX.arc(cx, cy+3, 5, 0, Math.PI*2); CX.fill();
+  CX.fillStyle='rgba(255,255,255,.4)';
+  CX.beginPath(); CX.arc(cx-1, cy+2, 2, 0, Math.PI*2); CX.fill();
+
+  // Gövde kenar çizgisi
+  CX.strokeStyle=darken(col,60); CX.lineWidth=1.5;
+  CX.beginPath(); CX.roundRect(cx-W/2, cy-H/2, W, H, [8,8,5,5]); CX.stroke();
+
+  // Parlama üstte
+  CX.fillStyle='rgba(255,255,255,.18)';
+  CX.beginPath(); CX.roundRect(cx-W/2+3, cy-H/2+2, W-6, H/3, 4); CX.fill();
+}
+
+// ── Kol + Silah ──
+function drawArmGun(cx, cy, angle, col, bIdx){
+  const ax=Math.cos(angle), ay=Math.sin(angle);
+  const armStartX=cx+ax*8, armStartY=cy+ay*6;
+  const armEndX=cx+ax*18, armEndY=cy+ay*14;
+
+  // Kol (yuvarlak, 3D)
+  CX.save();
+  CX.lineCap='round';
+  // Kol gölgesi
+  CX.strokeStyle=darken(col,50); CX.lineWidth=10;
+  CX.beginPath(); CX.moveTo(armStartX+1, armStartY+1); CX.lineTo(armEndX+1, armEndY+1); CX.stroke();
+  // Kol
+  CX.strokeStyle=darken(col,25); CX.lineWidth=9;
+  CX.beginPath(); CX.moveTo(armStartX, armStartY); CX.lineTo(armEndX, armEndY); CX.stroke();
+  // Kol parlama
+  CX.strokeStyle=lighten(col,20); CX.lineWidth=4;
+  CX.beginPath(); CX.moveTo(armStartX-ay*1.5, armStartY+ax*1.5); CX.lineTo(armEndX-ay*1.5, armEndY+ax*1.5); CX.stroke();
+  // El
+  CX.fillStyle=darken(col,15);
+  CX.beginPath(); CX.arc(armEndX, armEndY, 5.5, 0, Math.PI*2); CX.fill();
+
+  // Silah gövdesi
+  const gunX=armEndX+ax*6, gunY=armEndY+ay*6;
+  const gunTipX=cx+ax*34, gunTipY=cy+ay*28;
+
+  // Silah gölge
+  CX.strokeStyle='rgba(0,0,0,.5)'; CX.lineWidth=8;
+  CX.beginPath(); CX.moveTo(armEndX+1,armEndY+1); CX.lineTo(gunTipX+1,gunTipY+1); CX.stroke();
+  // Silah gövde
+  CX.strokeStyle='#1a1a1a'; CX.lineWidth=7;
+  CX.beginPath(); CX.moveTo(armEndX, armEndY); CX.lineTo(gunTipX, gunTipY); CX.stroke();
+  // Silah parlama
+  CX.strokeStyle='#555'; CX.lineWidth=4;
+  CX.beginPath(); CX.moveTo(armEndX-ay, armEndY+ax); CX.lineTo(gunTipX-ay, gunTipY+ax); CX.stroke();
+  CX.strokeStyle='#888'; CX.lineWidth=2;
+  CX.beginPath(); CX.moveTo(armEndX-ay*1.5, armEndY+ax*1.5); CX.lineTo(gunTipX-ay*1.5, gunTipY+ax*1.5); CX.stroke();
+
+  // Namlu ucu
+  CX.fillStyle='#777';
+  CX.beginPath(); CX.arc(gunTipX, gunTipY, 4.5, 0, Math.PI*2); CX.fill();
+  CX.fillStyle='#aaa';
+  CX.beginPath(); CX.arc(gunTipX-ay*1.2, gunTipY+ax*1.2, 2, 0, Math.PI*2); CX.fill();
+
+  // Silah detayı (brawler'a göre farklı renk)
+  const gunCols=['#c0392b','#8e44ad','#2980b9','#d35400','#f39c12','#16a085','#e67e22','#27ae60','#9b59b6','#2c3e50'];
+  CX.strokeStyle=gunCols[bIdx]||'#e74c3c'; CX.lineWidth=2;
+  CX.beginPath(); CX.moveTo(armEndX+ax*3-ay, armEndY+ay*3+ax); CX.lineTo(gunTipX-ax*4-ay, gunTipY-ay*4+ax); CX.stroke();
+
+  CX.restore();
+}
+
+// ── 3D Kafa ──
+function drawHead3D(cx, cy, col, teamCol, bIdx, isP, angle){
+  const R=14;
+  const faceRight=Math.cos(angle)>=0;
+
+  // Boyun
+  CX.fillStyle=darken(col,20);
+  CX.beginPath(); CX.ellipse(cx, cy+R-2, 5, 5, 0, 0, Math.PI*2); CX.fill();
+
+  // Kafa gölgesi (derinlik)
+  CX.fillStyle=darken(col,30);
+  CX.beginPath(); CX.arc(cx+3, cy+2, R, 0, Math.PI*2); CX.fill();
+
+  // Kafa ana
+  const hg=CX.createRadialGradient(cx-R*.35, cy-R*.3, 1, cx, cy, R);
+  hg.addColorStop(0, lighten(col,60));
+  hg.addColorStop(0.45, lighten(col,25));
+  hg.addColorStop(0.8, col);
+  hg.addColorStop(1, darken(col,25));
+  CX.fillStyle=hg;
+  CX.beginPath(); CX.arc(cx, cy, R, 0, Math.PI*2); CX.fill();
+
+  // Takım rengi çerçeve
+  CX.strokeStyle=teamCol; CX.lineWidth=isP?3.5:2.5;
+  CX.beginPath(); CX.arc(cx, cy, R, 0, Math.PI*2); CX.stroke();
+
+  // Yüz özellikleri (gözler + ağız)
+  drawFace(cx, cy, R, bIdx, angle);
+
+  // Saç/Şapka (brawler'a göre)
+  drawHair(cx, cy, R, col, bIdx, teamCol);
+
+  // Kafa parlama
+  CX.fillStyle='rgba(255,255,255,.28)';
+  CX.beginPath(); CX.ellipse(cx-R*.3, cy-R*.35, R*.45, R*.3, -0.5, 0, Math.PI*2); CX.fill();
+}
+
+// ── Yüz çizimi ──
+function drawFace(cx, cy, R, bIdx, angle){
+  const fR=Math.cos(angle)>=0;
+  const eyeOff=fR?2:-2;
+
+  // Göz beyazları
+  CX.fillStyle='#fff';
+  CX.beginPath(); CX.ellipse(cx-4+eyeOff, cy-2, 4, 5, 0, 0, Math.PI*2); CX.fill();
+  CX.beginPath(); CX.ellipse(cx+4+eyeOff, cy-2, 4, 5, 0, 0, Math.PI*2); CX.fill();
+
+  // Göz bebekleri
+  const pupilCols=['#c0392b','#6c3483','#1a5276','#a04000','#7d6608','#0e6655','#a04000','#1e8449','#6c3483','#1c2833'];
+  const pc=pupilCols[bIdx]||'#222';
+  CX.fillStyle=pc;
+  CX.beginPath(); CX.ellipse(cx-4+eyeOff+(fR?.8:-.8), cy-2+1, 2.5, 3.5, 0, 0, Math.PI*2); CX.fill();
+  CX.beginPath(); CX.ellipse(cx+4+eyeOff+(fR?.8:-.8), cy-2+1, 2.5, 3.5, 0, 0, Math.PI*2); CX.fill();
+  // Göz parıltısı
+  CX.fillStyle='#fff';
+  CX.beginPath(); CX.arc(cx-4+eyeOff+(fR?.2:-.2), cy-3, 1.2, 0, Math.PI*2); CX.fill();
+  CX.beginPath(); CX.arc(cx+4+eyeOff+(fR?.2:-.2), cy-3, 1.2, 0, Math.PI*2); CX.fill();
+
+  // Kaşlar (brawler'a göre ifade)
+  const browAngles=[0.3,0.4,-0.2,0.5,0.2,0.1,0.35,0.15,0.4,0.45];
+  const ba=browAngles[bIdx]||0.3;
+  CX.strokeStyle='#222'; CX.lineWidth=2; CX.lineCap='round';
+  CX.beginPath(); CX.moveTo(cx-7+eyeOff, cy-7-ba); CX.lineTo(cx-1+eyeOff, cy-8+ba*0.5); CX.stroke();
+  CX.beginPath(); CX.moveTo(cx+1+eyeOff, cy-8+ba*0.5); CX.lineTo(cx+7+eyeOff, cy-7-ba); CX.stroke();
+
+  // Ağız
+  const mouthTypes=[0,1,2,0,1,0,2,1,0,2]; // 0=sert, 1=gülümseme, 2=öfke
+  const mt=mouthTypes[bIdx]||0;
+  CX.strokeStyle='#333'; CX.lineWidth=1.8; CX.lineCap='round';
+  if(mt===1){ // Gülümseme
+    CX.beginPath(); CX.arc(cx+eyeOff, cy+6, 4, 0.2, Math.PI-0.2); CX.stroke();
+  } else if(mt===2){ // Öfke
+    CX.beginPath(); CX.arc(cx+eyeOff, cy+10, 4, Math.PI+0.3, -0.3); CX.stroke();
+  } else { // Düz sert
+    CX.beginPath(); CX.moveTo(cx-4+eyeOff, cy+6); CX.lineTo(cx+4+eyeOff, cy+6); CX.stroke();
+  }
+}
+
+// ── Saç / Şapka ──
+function drawHair(cx, cy, R, col, bIdx, teamCol){
+  // Her brawler için farklı saç stili
+  const styles=[
+    // 0 Shelly - kısa dağınık sarı
+    ()=>{
+      CX.fillStyle='#f1c40f';
+      CX.beginPath(); CX.ellipse(cx, cy-R+2, R*.7, R*.45, 0, Math.PI, Math.PI*2); CX.fill();
+      CX.fillStyle='#d4ac0d';
+      [[-6,-1],[-3,-3],[0,-4],[3,-3],[6,-1]].forEach(([ox,oy])=>{
+        CX.beginPath(); CX.ellipse(cx+ox, cy-R+oy, 3.5, 5, ox*0.08, Math.PI, Math.PI*2); CX.fill();
+      });
+    },
+    // 1 Nita - siyah örgü
+    ()=>{
+      CX.fillStyle='#1a0a2e';
+      CX.beginPath(); CX.ellipse(cx, cy-R+1, R*.75, R*.5, 0, Math.PI, Math.PI*2); CX.fill();
+      CX.fillStyle='#2c0f52';
+      CX.beginPath(); CX.ellipse(cx+R*.4, cy+R*.3, 5, 12, 0.3, 0, Math.PI*2); CX.fill();
+      CX.beginPath(); CX.ellipse(cx-R*.4, cy+R*.3, 5, 12, -0.3, 0, Math.PI*2); CX.fill();
+    },
+    // 2 Colt - kovboy şapka
+    ()=>{
+      CX.fillStyle='#6b3a1f';
+      CX.beginPath(); CX.ellipse(cx, cy-R+4, R*.85, 6, 0, 0, Math.PI*2); CX.fill(); // ağ
+      CX.beginPath(); CX.ellipse(cx, cy-R-2, R*.55, R*.5, 0, Math.PI, Math.PI*2); CX.fill(); // üst
+      CX.fillStyle='#8b4a2f';
+      CX.beginPath(); CX.ellipse(cx, cy-R+3, R*.82, 5, 0, 0, Math.PI*2); CX.fill();
+    },
+    // 3 Bull - kel kafa, sakal
+    ()=>{
+      CX.fillStyle='#5d3a1a';
+      CX.beginPath(); CX.ellipse(cx, cy+R*.4, R*.65, R*.4, 0, 0, Math.PI*2); CX.fill(); // sakal
+      CX.fillStyle='#7d4a2a';
+      CX.beginPath(); CX.ellipse(cx, cy+R*.45, R*.6, R*.35, 0, 0, Math.PI); CX.fill();
+    },
+    // 4 Jessie - kırmızı atkuyruk
+    ()=>{
+      CX.fillStyle='#c0392b';
+      CX.beginPath(); CX.ellipse(cx, cy-R+1, R*.7, R*.45, 0, Math.PI, Math.PI*2); CX.fill();
+      CX.beginPath(); CX.ellipse(cx+R*.5, cy-R*.2, 4, 14, 0.4, 0, Math.PI*2); CX.fill();
+      CX.fillStyle='#e74c3c';
+      CX.beginPath(); CX.ellipse(cx+R*.5+2, cy-R*.2+5, 3, 8, 0.5, 0, Math.PI*2); CX.fill();
+    },
+    // 5 Brock - sarı uzun saç
+    ()=>{
+      CX.fillStyle='#f39c12';
+      CX.beginPath(); CX.ellipse(cx, cy-R+1, R*.72, R*.48, 0, Math.PI, Math.PI*2); CX.fill();
+      CX.beginPath(); CX.ellipse(cx-R*.45, cy, 4, 13, -0.2, 0, Math.PI*2); CX.fill();
+      CX.beginPath(); CX.ellipse(cx+R*.45, cy, 4, 13, 0.2, 0, Math.PI*2); CX.fill();
+    },
+    // 6 Dyna - yeşil deli saç
+    ()=>{
+      CX.fillStyle='#27ae60';
+      [[-5,-2],[-2,-5],[2,-5],[5,-2],[0,-6]].forEach(([ox,oy])=>{
+        CX.beginPath(); CX.ellipse(cx+ox, cy-R+oy, 3, 6, ox*0.15, Math.PI*1.2, Math.PI*2-0.2); CX.fill();
+      });
+    },
+    // 7 Bo - mor bandana
+    ()=>{
+      CX.fillStyle='#6c3483';
+      CX.beginPath(); CX.rect(cx-R+2, cy-R*.1, R*2-4, 7); CX.fill();
+      CX.fillStyle='#9b59b6';
+      CX.beginPath(); CX.rect(cx-R+2, cy-R*.1, R*2-4, 3); CX.fill();
+      // Saç üstte
+      CX.fillStyle='#1a0a0a';
+      CX.beginPath(); CX.ellipse(cx, cy-R+1, R*.68, R*.42, 0, Math.PI, Math.PI*2); CX.fill();
+    },
+    // 8 Spike - kaktüs dikenleri
+    ()=>{
+      CX.fillStyle='#27ae60';
+      const spikes=[[-6,-8],[-2,-10],[3,-10],[7,-8],[0,-11]];
+      spikes.forEach(([ox,oy])=>{
+        CX.beginPath();
+        CX.moveTo(cx+ox, cy+oy);
+        CX.lineTo(cx+ox-3, cy-R+2);
+        CX.lineTo(cx+ox+3, cy-R+2);
+        CX.closePath(); CX.fill();
+      });
+    },
+    // 9 Crow - siyah tüy tacı
+    ()=>{
+      CX.fillStyle='#1a1a2e';
+      CX.beginPath(); CX.ellipse(cx, cy-R+1, R*.7, R*.45, 0, Math.PI, Math.PI*2); CX.fill();
+      CX.fillStyle='#2c2c3e';
+      [[-8,0],[-4,-3],[0,-4],[4,-3],[8,0]].forEach(([ox,oy])=>{
+        CX.beginPath();
+        CX.moveTo(cx+ox, cy-R+oy);
+        CX.lineTo(cx+ox-2, cy-R-6+oy);
+        CX.lineTo(cx+ox+2, cy-R-6+oy);
+        CX.closePath(); CX.fill();
+      });
+    },
+  ];
+  if(styles[bIdx]) styles[bIdx]();
+}
+
+function darken(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  return`rgb(${Math.max(0,(n>>16)-amt)},${Math.max(0,((n>>8)&255)-amt)},${Math.max(0,(n&255)-amt)})`;
 }
 
 function lighten(hex,amt){
